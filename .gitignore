@@ -1,0 +1,31 @@
+# Anchor build artifacts
+target/
+.anchor/
+
+# Node.js
+node_modules/
+dist/
+.yarn/
+yarn-error.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# Test artifacts
+test-ledger/
+
+# Build cache
+.cache/
+*.tsbuildinfo

@@ -1,0 +1,28 @@
+{
+  "name": "lightning-rod-solana",
+  "version": "0.1.0",
+  "description": "Lightning Rod - Encrypted Token Program for Solana using Inco Lightning",
+  "type": "module",
+  "license": "MIT",
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.31.0",
+    "@inco/solana-sdk": "^0.1.0",
+    "@solana/web3.js": "^1.98.0"
+  },
+  "devDependencies": {
+    "@types/bn.js": "^5.1.6",
+    "@types/chai": "^5.2.1",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.13.10",
+    "chai": "^5.2.0",
+    "ts-mocha": "^11.1.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
+  },
+  "scripts": {
+    "build": "anchor build",
+    "test": "anchor test",
+    "test:token": "ts-mocha -p ./tsconfig.json -t 1000000 tests/inco-token.ts",
+    "test:token2022": "ts-mocha -p ./tsconfig.json -t 1000000 tests/inco-token-2022.ts"
+  }
+}

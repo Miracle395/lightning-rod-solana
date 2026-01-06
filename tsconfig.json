@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "types": ["mocha", "chai", "node"],
+    "typeRoots": ["./node_modules/@types"],
+    "lib": ["es2015"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "es6",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "resolveJsonModule": true
+  },
+  "include": ["tests/**/*.ts"],
+  "exclude": ["node_modules"]
+}
