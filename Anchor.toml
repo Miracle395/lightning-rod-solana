@@ -15,4 +15,5 @@ cluster = "devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+"test:token" = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/inco-token.ts"
+"test:token2022" = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/inco-token-2022.ts"

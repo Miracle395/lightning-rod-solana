@@ -1,188 +1,126 @@
 # Lightning Rod Solana
 
-Encrypted Token Program for Solana using Inco Lightning - a privacy-preserving token standard that enables confidential token balances and transfers on Solana.
+Lightning Rod Solana is the home of the Dapp Developer Kit (DDK) for Inco Lightning network on Solana.
 
-## Overview
+<img src="./docs/images/lightning-rod.png" alt="Lightning Rod" width="300" style="float: right; margin-left: 20px; margin-bottom: 20px;">
 
-Lightning Rod implements an SPL Token-compatible interface with encrypted balances using Inco's confidential computing infrastructure. Token balances and transfer amounts are encrypted on-chain, with decryption only possible through Inco's attested TEE (Trusted Execution Environment).
+To start working with Inco Lightning on Solana and the Lightning Rod template repository, work through the [Quick Start](#quick-start) section below.
 
-## Features
+Further [documentation](#documentation) is linked below.
 
-- **Encrypted Balances**: Token balances stored as encrypted handles (Euint128)
-- **Confidential Transfers**: Transfer amounts are encrypted and processed homomorphically
-- **SPL Token Compatibility**: Familiar token operations (mint, transfer, burn, freeze, etc.)
-- **Token 2022 Support**: Extended functionality with checked operations and decimal validation
-- **Associated Token Accounts**: PDA-based token account derivation
-- **Metadata Support**: Standard NFT metadata structure
+## Documentation
 
-## Program Architecture
+- [Inco Lightning Rust SDK](docs/inco-lightning.md)
+- [Inco Solana TypeScript SDK](docs/solana-sdk.md)
 
-### Core Modules
-
-- `token.rs` - Standard token operations (mint, transfer, burn, approve, etc.)
-- `token_2022.rs` - Token 2022 checked operations with decimal validation
-- `associated_token.rs` - Associated token account creation
-- `memo.rs` - Encrypted memo support
-- `metadata.rs` - NFT metadata standard implementation
-
-### Account Structures
-
-```rust
-// Encrypted Mint Account
-pub struct IncoMint {
-    pub mint_authority: COption<Pubkey>,
-    pub supply: Euint128,           // Encrypted total supply
-    pub decimals: u8,
-    pub is_initialized: bool,
-    pub freeze_authority: COption<Pubkey>,
-}
-
-// Encrypted Token Account
-pub struct IncoAccount {
-    pub mint: Pubkey,
-    pub owner: Pubkey,
-    pub amount: Euint128,           // Encrypted balance
-    pub delegate: COption<Pubkey>,
-    pub state: AccountState,
-    pub delegated_amount: Euint128, // Encrypted delegation
-    pub close_authority: COption<Pubkey>,
-}
-```
-
-## Installation
+## Quick Start
 
 ### Prerequisites
 
-- Rust 1.70+
-- Solana CLI 1.18+
-- Anchor 0.31+
-- Node.js 18+
+We require recent versions of
 
-### Setup
+- [Rust](https://www.rust-lang.org/tools/install) (1.70+)
+- [Solana CLI](https://docs.solana.com/cli/install-solana-cli-tools) (1.18+)
+- [Anchor](https://www.anchor-lang.com/docs/installation) (0.31+)
+- [Node.js](https://nodejs.org/) (18+)
+- [Yarn](https://yarnpkg.com/)
+
+to be installed.
+
+### Install dependencies
+
+To install the dependencies, run:
 
 ```bash
-# Clone the repository
-git clone https://github.com/inco-network/lightning-rod-solana
-cd lightning-rod-solana
-
-# Install dependencies
 yarn install
-
-# Build the program
-anchor build
 ```
 
-## Usage
+### Build the program
 
-### Building
+To build the Solana program, run:
 
 ```bash
 anchor build
 ```
 
-### Testing
+### Running tests on Devnet
+
+The tests run against Solana Devnet where the Inco Lightning infrastructure is deployed.
+
+Make sure you have a Solana wallet configured with some devnet SOL:
+
+```bash
+# Create a new wallet (if needed)
+solana-keygen new
+
+# Set cluster to devnet
+solana config set --url devnet
+
+# Airdrop some SOL for testing
+solana airdrop 2
+```
+
+Then run the tests:
 
 ```bash
 # Run all tests
 anchor test
 
-# Run specific test suite
-yarn test:token      # Standard token tests
-yarn test:token2022  # Token 2022 tests
+# Run standard token tests only
+yarn test:token
+
+# Run Token 2022 tests only
+yarn test:token2022
 ```
 
-### Deployment
+### Testing a Confidential Token
+
+An example of a confidential token using Inco Lightning is provided in `programs/inco-token/`.
+
+The program implements:
+- Encrypted token balances using `Euint128` handles
+- Confidential transfers, minting, and burning
+- SPL Token compatible interface
+- Token 2022 extensions with decimal validation
+
+To test run:
 
 ```bash
-# Deploy to devnet
-anchor deploy --provider.cluster devnet
+yarn install
+anchor build
+anchor test
 ```
 
-## SDK Integration
+## Program Structure
 
-The program is designed to work with `@inco/solana-sdk`:
-
-```typescript
-import { encryptValue } from "@inco/solana-sdk/encryption";
-import { decrypt } from "@inco/solana-sdk/attested-decrypt";
-import { hexToBuffer } from "@inco/solana-sdk/utils";
-
-// Encrypt a value for minting/transferring
-const amount = BigInt(1000000000); // 1 token with 9 decimals
-const encryptedHex = await encryptValue(amount);
-
-// Use in transaction
-await program.methods
-  .mintTo(hexToBuffer(encryptedHex), 0)
-  .accounts({
-    mint: mintPubkey,
-    account: tokenAccountPubkey,
-    mintAuthority: authorityPubkey,
-  })
-  .rpc();
-
-// Decrypt a balance
-const tokenAccount = await program.account.incoAccount.fetch(tokenAccountPubkey);
-const result = await decrypt([tokenAccount.amount.toString()]);
-const balance = parseInt(result.plaintexts[0], 10);
 ```
-
-## Instructions
-
-### Standard Token Operations
-
-| Instruction | Description |
-|-------------|-------------|
-| `initialize_mint` | Create a new encrypted mint |
-| `initialize_account` | Create a new encrypted token account |
-| `mint_to` | Mint encrypted tokens |
-| `transfer` | Transfer encrypted tokens |
-| `burn` | Burn encrypted tokens |
-| `approve` | Approve delegate with encrypted amount |
-| `revoke` | Revoke delegate |
-| `freeze_account` | Freeze token account |
-| `thaw_account` | Unfreeze token account |
-| `close_account` | Close token account |
-
-### Token 2022 Operations
-
-| Instruction | Description |
-|-------------|-------------|
-| `initialize_account3` | Token 2022 account initialization |
-| `mint_to_checked` | Mint with decimal validation |
-| `transfer_checked` | Transfer with decimal validation |
-| `burn_checked` | Burn with decimal validation |
-| `approve_checked` | Approve with decimal validation |
-| `revoke_2022` | Token 2022 revoke |
-| `close_account_2022` | Token 2022 close |
+lightning-rod-solana/
+├── programs/
+│   └── inco-token/           # Confidential token program
+│       ├── src/
+│       │   ├── lib.rs        # Program entry point
+│       │   ├── token.rs      # Core token operations
+│       │   ├── token_2022.rs # Token 2022 extensions
+│       │   └── ...
+│       └── Cargo.toml
+├── tests/
+│   ├── inco-token.ts         # Standard token tests
+│   └── inco-token-2022.ts    # Token 2022 tests
+└── ...
+```
 
 ## Dependencies
 
+### Rust (Program)
 - `anchor-lang` 0.31.1
-- `anchor-spl` 0.31.1
-- `inco-lightning` 0.1.1
+- `anchor-spl` 0.31.1  
+- `inco-lightning` 0.1.2
+
+### TypeScript (Tests/Client)
+- `@coral-xyz/anchor`
+- `@inco/solana-sdk`
+- `@solana/web3.js`
 
 ## Program ID
 
 **Devnet**: `8ektS9Vq9bXgGxdRrxC54JagTyotV3upAC3Xa3R9S3n4`
-
-## Security Considerations
-
-- Encrypted balances prevent on-chain balance inspection
-- Transfer amounts are validated homomorphically (cannot transfer more than balance)
-- Decryption requires attested TEE access through Inco infrastructure
-- Close account operations should verify zero balance client-side before closing
-
-## License
-
-MIT
-
-## Contributing
-
-Contributions are welcome! Please read our contributing guidelines before submitting PRs.
-
-## Resources
-
-- [Inco Network Documentation](https://docs.inco.org)
-- [Solana SDK Documentation](https://docs.solana.com)
-- [Anchor Framework](https://www.anchor-lang.com)
