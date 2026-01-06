@@ -2,16 +2,9 @@
 
 Lightning Rod Solana is the home of the Dapp Developer Kit (DDK) for Inco Lightning network on Solana.
 
-<img src="./docs/images/lightning-rod.png" alt="Lightning Rod" width="300" style="float: right; margin-left: 20px; margin-bottom: 20px;">
-
 To start working with Inco Lightning on Solana and the Lightning Rod template repository, work through the [Quick Start](#quick-start) section below.
 
 Further [documentation](#documentation) is linked below.
-
-## Documentation
-
-- [Inco Lightning Rust SDK](docs/inco-lightning.md)
-- [Inco Solana TypeScript SDK](docs/solana-sdk.md)
 
 ## Quick Start
 
@@ -120,7 +113,3 @@ lightning-rod-solana/
 - `@coral-xyz/anchor`
 - `@inco/solana-sdk`
 - `@solana/web3.js`
-
-## Program ID
-
-**Devnet**: `8ektS9Vq9bXgGxdRrxC54JagTyotV3upAC3Xa3R9S3n4`
