@@ -17,7 +17,7 @@ pub use associated_token::*;
 pub use metadata::*;
 pub use token_2022::*;
 
-declare_id!("3hdtBkqkTt2pmNUetqq5KUAmwGUxuFEKGtJ62kDtNvQT");
+declare_id!("7PkBc98v6bKkX8oc8Wmce6HNR5BiEt1YcRFB4DLsrPW8");
 
 // ========== SHARED TYPES ==========
 
@@ -154,10 +154,6 @@ pub mod inco_token {
 
     pub fn close_account(ctx: Context<CloseAccount>) -> Result<()> {
         token::close_account(ctx)
-    }
-
-    pub fn wrap(ctx: Context<Wrap>, amount: u64) -> Result<()> {
-        token::wrap(ctx, amount)
     }
 
     pub fn set_mint_authority(

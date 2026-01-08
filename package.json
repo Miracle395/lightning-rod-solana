@@ -6,7 +6,7 @@
   "license": "MIT",
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.0",
-    "@inco/solana-sdk": "file:/Users/deepakagashe/Desktop/solana-sdk",
+    "@inco/solana-sdk": "^0.0.1",
     "@noble/ed25519": "^2.3.0",
     "@solana/web3.js": "^1.98.0",
     "axios": "^1.8.4"

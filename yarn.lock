@@ -46,8 +46,10 @@
   dependencies:
     "@jridgewell/trace-mapping" "0.3.9"
 
-"@inco/solana-sdk@file:../solana-sdk":
+"@inco/solana-sdk@^0.0.1":
   version "0.0.1"
+  resolved "https://registry.yarnpkg.com/@inco/solana-sdk/-/solana-sdk-0.0.1.tgz#2d16a5a749572c9f85917074b8cd49cbe67202a3"
+  integrity sha512-lWl51EUYvIAnfa39EVq6Zy7weN3HC5iG+cxFVsTg8XYq5FQJFrtVg8QsFD5q0FjwfyrCvUwKfQtxpgm1dpntGw==
   dependencies:
     "@coral-xyz/anchor" "0.31.1"
     "@solana/spl-token" "^0.4.8"

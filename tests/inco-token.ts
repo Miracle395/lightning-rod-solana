@@ -1,6 +1,6 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
-import type { IncoToken } from "../target/types/inco_token";
+import type { IncoToken } from "../target/types/inco_token.js";
 import { 
   PublicKey, 
   Keypair, 
@@ -543,7 +543,7 @@ describe("inco-token", () => {
         
         if (balanceBefore !== null) {
           const change = decryptedAfterBurn - balanceBefore;
-          console.log("Balance change from burn:", change, "tokens");
+          console.log("Balance change from burn:", change.toFixed(2), "tokens");
         }
       }
     });

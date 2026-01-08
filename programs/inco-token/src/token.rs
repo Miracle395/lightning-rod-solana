@@ -448,40 +448,7 @@ pub fn close_account(ctx: Context<CloseAccount>) -> Result<()> {
     Ok(())
 }
 
-pub fn wrap(ctx: Context<Wrap>, amount: u64) -> Result<()> {
-    let amount_u128: u128 = amount.try_into().map_err(|_| CustomError::Overflow)?;
 
-    // Transfer SPL tokens to program account
-    let transfer_ctx = CpiContext::new(
-        ctx.accounts.token_program.to_account_info(),
-        SplTransfer {
-            from: ctx.accounts.user_token_account.to_account_info(),
-            to: ctx.accounts.program_token_account.to_account_info(),
-            authority: ctx.accounts.user.to_account_info(),
-        }
-    );
-    token::transfer(transfer_ctx, amount)?;
-
-    let inco = ctx.accounts.inco_lightning_program.to_account_info();
-    let signer = ctx.accounts.user.to_account_info();
-
-    // Convert to encrypted amount
-    let cpi_ctx = CpiContext::new(inco.clone(), Operation { signer: signer.clone() });
-    let encrypted_amount = as_euint128(cpi_ctx, amount_u128)?;
-    let amount_handle = encrypted_amount;
-
-    // Add to total supply
-    let cpi_ctx2 = CpiContext::new(inco.clone(), Operation { signer: signer.clone() });
-    let new_supply = e_add(cpi_ctx2, ctx.accounts.mint.supply, amount_handle, 0u8)?;
-    ctx.accounts.mint.supply = new_supply;
-
-    // Add to user balance
-    let cpi_ctx3 = CpiContext::new(inco, Operation { signer });
-    let new_balance = e_add(cpi_ctx3, ctx.accounts.user_account.amount, amount_handle, 0u8)?;
-    ctx.accounts.user_account.amount = new_balance;
-
-    Ok(())
-}
 
 pub fn set_mint_authority(
     ctx: Context<SetMintAuthority>,
@@ -731,34 +698,6 @@ pub struct CloseAccount<'info> {
     pub authority: Signer<'info>,
 }
 
-#[derive(Accounts)]
-pub struct Wrap<'info> {
-    #[account(
-        mut,
-        constraint = mint.is_initialized @ CustomError::UninitializedState,
-    )]
-    pub mint: Account<'info, IncoMint>,
-    #[account(
-        mut,
-        constraint = user_account.state == AccountState::Initialized @ CustomError::UninitializedState,
-        constraint = user_account.mint == mint.key() @ CustomError::MintMismatch,
-        constraint = user_account.owner == user.key() @ CustomError::OwnerMismatch,
-    )]
-    pub user_account: Account<'info, IncoAccount>,
-    #[account(mut)]
-    pub user: Signer<'info>,
-    #[account(
-        mut,
-        constraint = user_token_account.owner == user.key() @ CustomError::OwnerMismatch,
-    )]
-    pub user_token_account: Account<'info, TokenAccount>,
-    #[account(mut)]
-    pub program_token_account: Account<'info, TokenAccount>,
-    pub token_program: Program<'info, Token>,
-    /// CHECK: Inco Lightning program for encrypted operations
-    #[account(address = INCO_LIGHTNING_ID)]
-    pub inco_lightning_program: AccountInfo<'info>,
-}
 
 #[derive(Accounts)]
 pub struct SetMintAuthority<'info> {
