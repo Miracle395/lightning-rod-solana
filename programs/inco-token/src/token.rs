@@ -28,7 +28,7 @@ pub fn initialize_mint(
             signer: ctx.accounts.payer.to_account_info(),
         }
     );
-    let zero_supply = as_euint128(cpi_ctx, 0)?.get();
+    let zero_supply = as_euint128(cpi_ctx, 0)?;
 
     mint.supply = zero_supply;
     mint.decimals = decimals;
@@ -56,7 +56,7 @@ pub fn initialize_account(ctx: Context<InitializeAccount>) -> Result<()> {
     let signer = ctx.accounts.payer.to_account_info();
 
     let cpi_ctx = CpiContext::new(inco.clone(), Operation { signer: signer.clone() });
-    let zero_amount = as_euint128(cpi_ctx, 0)?.get();
+    let zero_amount = as_euint128(cpi_ctx, 0)?;
 
     account.amount = zero_amount;
     account.delegate = COption::None;
@@ -65,7 +65,7 @@ pub fn initialize_account(ctx: Context<InitializeAccount>) -> Result<()> {
 
     // Create encrypted zero handle for delegated_amount
     let cpi_ctx2 = CpiContext::new(inco, Operation { signer });
-    let zero_delegated = as_euint128(cpi_ctx2, 0)?.get();
+    let zero_delegated = as_euint128(cpi_ctx2, 0)?;
 
     account.delegated_amount = zero_delegated;
     account.close_authority = COption::None;
@@ -95,16 +95,16 @@ pub fn mint_to(ctx: Context<IncoMintTo>, ciphertext: Vec<u8>, input_type: u8) ->
 
     // Create encrypted amount from ciphertext
     let cpi_ctx = CpiContext::new(inco.clone(), Operation { signer: signer.clone() });
-    let amount = new_euint128(cpi_ctx, ciphertext, input_type)?.get();
+    let amount = new_euint128(cpi_ctx, ciphertext, input_type)?;
 
     // Add to supply with overflow protection
     let cpi_ctx2 = CpiContext::new(inco.clone(), Operation { signer: signer.clone() });
-    let new_supply = e_add(cpi_ctx2, mint.supply, amount, 0u8)?.get();
+    let new_supply = e_add(cpi_ctx2, mint.supply, amount, 0u8)?;
     mint.supply = new_supply;
 
     // Add to account balance
     let cpi_ctx3 = CpiContext::new(inco, Operation { signer });
-    let new_balance = e_add(cpi_ctx3, account.amount, amount, 0u8)?.get();
+    let new_balance = e_add(cpi_ctx3, account.amount, amount, 0u8)?;
     account.amount = new_balance;
 
     Ok(())
@@ -132,12 +132,12 @@ pub fn mint_to_with_handle(ctx: Context<IncoMintTo>, amount_handle: Euint128) ->
 
     // Add to supply
     let cpi_ctx = CpiContext::new(inco.clone(), Operation { signer: signer.clone() });
-    let new_supply = e_add(cpi_ctx, mint.supply, amount_handle, 0u8)?.get();
+    let new_supply = e_add(cpi_ctx, mint.supply, amount_handle, 0u8)?;
     mint.supply = new_supply;
 
     // Add to account balance
     let cpi_ctx2 = CpiContext::new(inco, Operation { signer });
-    let new_balance = e_add(cpi_ctx2, account.amount, amount_handle, 0u8)?.get();
+    let new_balance = e_add(cpi_ctx2, account.amount, amount_handle, 0u8)?;
     account.amount = new_balance;
 
     Ok(())
@@ -177,15 +177,15 @@ pub fn transfer(ctx: Context<IncoTransfer>, ciphertext: Vec<u8>, input_type: u8)
 
     // Create encrypted amount
     let cpi_ctx = CpiContext::new(inco.clone(), Operation { signer: signer.clone() });
-    let amount = new_euint128(cpi_ctx, ciphertext, input_type)?.get();
+    let amount = new_euint128(cpi_ctx, ciphertext, input_type)?;
 
     // Check sufficient balance
     let cpi_ctx2 = CpiContext::new(inco.clone(), Operation { signer: signer.clone() });
-    let has_sufficient = e_ge(cpi_ctx2, source.amount, amount, 0u8)?.get();
+    let has_sufficient = e_ge(cpi_ctx2, source.amount, amount, 0u8)?;
 
     // Create zero handle for conditional logic
     let cpi_ctx3 = CpiContext::new(inco.clone(), Operation { signer: signer.clone() });
-    let zero_value = as_euint128(cpi_ctx3, 0)?.get();
+    let zero_value = as_euint128(cpi_ctx3, 0)?;
 
     // Select transfer amount based on sufficient balance
     let cpi_ctx4 = CpiContext::new(inco.clone(), Operation { signer: signer.clone() });
@@ -195,7 +195,7 @@ pub fn transfer(ctx: Context<IncoTransfer>, ciphertext: Vec<u8>, input_type: u8)
         amount,
         zero_value,
         0u8
-    )?.get();
+    )?;
 
     // Subtract from source
     let cpi_ctx5 = CpiContext::new(inco.clone(), Operation { signer: signer.clone() });
@@ -204,7 +204,7 @@ pub fn transfer(ctx: Context<IncoTransfer>, ciphertext: Vec<u8>, input_type: u8)
         source.amount,
         transfer_amount, 
         0u8
-    )?.get();
+    )?;
     source.amount = new_source_balance;
 
     // Add to destination
@@ -214,7 +214,7 @@ pub fn transfer(ctx: Context<IncoTransfer>, ciphertext: Vec<u8>, input_type: u8)
         destination.amount,
         transfer_amount, 
         0u8
-    )?.get();
+    )?;
     destination.amount = new_dest_balance;
 
     Ok(())
@@ -254,24 +254,24 @@ pub fn transfer_with_handle(ctx: Context<IncoTransfer>, amount_handle: Euint128)
 
     // Check sufficient balance
     let cpi_ctx = CpiContext::new(inco.clone(), Operation { signer: signer.clone() });
-    let has_sufficient = e_ge(cpi_ctx, source.amount, amount_handle, 0u8)?.get();
+    let has_sufficient = e_ge(cpi_ctx, source.amount, amount_handle, 0u8)?;
 
     // Create zero handle for conditional logic
     let cpi_ctx2 = CpiContext::new(inco.clone(), Operation { signer: signer.clone() });
-    let zero_value = as_euint128(cpi_ctx2, 0)?.get();
+    let zero_value = as_euint128(cpi_ctx2, 0)?;
 
     // Select transfer amount based on sufficient balance
     let cpi_ctx3 = CpiContext::new(inco.clone(), Operation { signer: signer.clone() });
-    let transfer_amount = e_select(cpi_ctx3, has_sufficient, amount_handle, zero_value, 0u8)?.get();
+    let transfer_amount = e_select(cpi_ctx3, has_sufficient, amount_handle, zero_value, 0u8)?;
 
     // Subtract from source
     let cpi_ctx4 = CpiContext::new(inco.clone(), Operation { signer: signer.clone() });
-    let new_source_balance = e_sub(cpi_ctx4, source.amount, transfer_amount, 0u8)?.get();
+    let new_source_balance = e_sub(cpi_ctx4, source.amount, transfer_amount, 0u8)?;
     source.amount = new_source_balance;
 
     // Add to destination
     let cpi_ctx5 = CpiContext::new(inco, Operation { signer });
-    let new_dest_balance = e_add(cpi_ctx5, destination.amount, transfer_amount, 0u8)?.get();
+    let new_dest_balance = e_add(cpi_ctx5, destination.amount, transfer_amount, 0u8)?;
     destination.amount = new_dest_balance;
     Ok(())
 }
@@ -290,7 +290,7 @@ pub fn approve(ctx: Context<IncoApprove>, ciphertext: Vec<u8>, input_type: u8) -
             signer: ctx.accounts.owner.to_account_info(),
         }
     );
-    let amount = new_euint128(cpi_ctx, ciphertext, input_type)?.get();
+    let amount = new_euint128(cpi_ctx, ciphertext, input_type)?;
 
     source.delegate = COption::Some(ctx.accounts.delegate.key());
     source.delegated_amount = amount;
@@ -313,7 +313,7 @@ pub fn revoke(ctx: Context<IncoRevoke>) -> Result<()> {
             signer: ctx.accounts.owner.to_account_info(),
         }
     );
-    let zero_delegated = as_euint128(cpi_ctx, 0)?.get();
+    let zero_delegated = as_euint128(cpi_ctx, 0)?;
 
     source.delegated_amount = zero_delegated;
 
@@ -345,27 +345,27 @@ pub fn burn(ctx: Context<IncoBurn>, ciphertext: Vec<u8>, input_type: u8) -> Resu
 
     // Create encrypted burn amount
     let cpi_ctx = CpiContext::new(inco.clone(), Operation { signer: signer.clone() });
-    let amount = new_euint128(cpi_ctx, ciphertext, input_type)?.get();
+    let amount = new_euint128(cpi_ctx, ciphertext, input_type)?;
 
     // Check sufficient balance and perform conditional burn
     let cpi_ctx2 = CpiContext::new(inco.clone(), Operation { signer: signer.clone() });
-    let has_sufficient = e_ge(cpi_ctx2, account.amount, amount, 0u8)?.get();
+    let has_sufficient = e_ge(cpi_ctx2, account.amount, amount, 0u8)?;
 
     // Create zero handle
     let cpi_ctx3 = CpiContext::new(inco.clone(), Operation { signer: signer.clone() });
-    let zero_value = as_euint128(cpi_ctx3, 0)?.get();
+    let zero_value = as_euint128(cpi_ctx3, 0)?;
 
     let cpi_ctx4 = CpiContext::new(inco.clone(), Operation { signer: signer.clone() });
-    let burn_amount = e_select(cpi_ctx4, has_sufficient, amount, zero_value, 0u8)?.get();
+    let burn_amount = e_select(cpi_ctx4, has_sufficient, amount, zero_value, 0u8)?;
 
     // Subtract from account
     let cpi_ctx5 = CpiContext::new(inco.clone(), Operation { signer: signer.clone() });
-    let new_balance = e_sub(cpi_ctx5, account.amount, burn_amount, 0u8)?.get();
+    let new_balance = e_sub(cpi_ctx5, account.amount, burn_amount, 0u8)?;
     account.amount = new_balance;
 
     // Subtract from total supply
     let cpi_ctx6 = CpiContext::new(inco, Operation { signer });
-    let new_supply = e_sub(cpi_ctx6, mint.supply, burn_amount, 0u8)?.get();
+    let new_supply = e_sub(cpi_ctx6, mint.supply, burn_amount, 0u8)?;
     mint.supply = new_supply;
 
     Ok(())
@@ -468,16 +468,16 @@ pub fn wrap(ctx: Context<Wrap>, amount: u64) -> Result<()> {
     // Convert to encrypted amount
     let cpi_ctx = CpiContext::new(inco.clone(), Operation { signer: signer.clone() });
     let encrypted_amount = as_euint128(cpi_ctx, amount_u128)?;
-    let amount_handle = encrypted_amount.get();
+    let amount_handle = encrypted_amount;
 
     // Add to total supply
     let cpi_ctx2 = CpiContext::new(inco.clone(), Operation { signer: signer.clone() });
-    let new_supply = e_add(cpi_ctx2, ctx.accounts.mint.supply, amount_handle, 0u8)?.get();
+    let new_supply = e_add(cpi_ctx2, ctx.accounts.mint.supply, amount_handle, 0u8)?;
     ctx.accounts.mint.supply = new_supply;
 
     // Add to user balance
     let cpi_ctx3 = CpiContext::new(inco, Operation { signer });
-    let new_balance = e_add(cpi_ctx3, ctx.accounts.user_account.amount, amount_handle, 0u8)?.get();
+    let new_balance = e_add(cpi_ctx3, ctx.accounts.user_account.amount, amount_handle, 0u8)?;
     ctx.accounts.user_account.amount = new_balance;
 
     Ok(())

@@ -771,9 +771,9 @@ dependencies = [
 
 [[package]]
 name = "inco-lightning"
-version = "0.1.2"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1076b0d24ac4fb02653cf05b9061bf87426bec55e0f26dc39e8dfcf8927627f4"
+checksum = "0e056accb58463217b321a5a9a7d3e6887b5ae0c396fec384661d2d95c5018df"
 dependencies = [
  "anchor-lang",
 ]

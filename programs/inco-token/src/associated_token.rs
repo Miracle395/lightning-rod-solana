@@ -21,7 +21,7 @@ pub fn create(ctx: Context<Create>) -> Result<()> {
 
     // Create encrypted zero handle for amount
     let cpi_ctx = CpiContext::new(inco.clone(), Operation { signer: signer.clone() });
-    let zero_amount = as_euint128(cpi_ctx, 0)?.get();
+    let zero_amount = as_euint128(cpi_ctx, 0)?;
 
     account.amount = zero_amount;
     account.delegate = COption::None;
@@ -30,7 +30,7 @@ pub fn create(ctx: Context<Create>) -> Result<()> {
 
     // Create encrypted zero handle for delegated_amount
     let cpi_ctx2 = CpiContext::new(inco, Operation { signer });
-    let zero_delegated = as_euint128(cpi_ctx2, 0)?.get();
+    let zero_delegated = as_euint128(cpi_ctx2, 0)?;
 
     account.delegated_amount = zero_delegated;
     account.close_authority = COption::None;
@@ -58,7 +58,7 @@ pub fn create_idempotent(ctx: Context<CreateIdempotent>) -> Result<()> {
     let signer = ctx.accounts.payer.to_account_info();
 
     let cpi_ctx = CpiContext::new(inco.clone(), Operation { signer: signer.clone() });
-    let zero_amount = as_euint128(cpi_ctx, 0)?.get();
+    let zero_amount = as_euint128(cpi_ctx, 0)?;
 
     account.amount = zero_amount;
     account.delegate = COption::None;
@@ -66,7 +66,7 @@ pub fn create_idempotent(ctx: Context<CreateIdempotent>) -> Result<()> {
     account.is_native = COption::None;
 
     let cpi_ctx2 = CpiContext::new(inco, Operation { signer });
-    let zero_delegated = as_euint128(cpi_ctx2, 0)?.get();
+    let zero_delegated = as_euint128(cpi_ctx2, 0)?;
 
     account.delegated_amount = zero_delegated;
     account.close_authority = COption::None;
