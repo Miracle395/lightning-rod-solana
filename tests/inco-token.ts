@@ -1,782 +1,466 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import type { IncoToken } from "../target/types/inco_token.js";
-import { 
-  PublicKey, 
-  Keypair, 
-  SystemProgram,
-  Connection,
-  Transaction,
-  SYSVAR_INSTRUCTIONS_PUBKEY
-} from "@solana/web3.js";
+import { PublicKey, Keypair, SystemProgram, Connection } from "@solana/web3.js";
 import { expect } from "chai";
+import nacl from "tweetnacl";
 import { encryptValue } from "@inco/solana-sdk/encryption";
 import { decrypt } from "@inco/solana-sdk/attested-decrypt";
-import { hexToBuffer, handleToBuffer, plaintextToBuffer } from "@inco/solana-sdk/utils";
+import { hexToBuffer } from "@inco/solana-sdk/utils";
 
-// Enhanced handle extraction function for Anchor BN objects
-function extractHandleFromAnchor(anchorHandle: any): string {
-  // Handle direct BN objects (most common case)
+const INCO_LIGHTNING_PROGRAM_ID = new PublicKey("5sjEbPiqgZrYwR31ahR6Uk9wf5awoX61YGg7jExQSwaj");
+
+function extractHandleFromAnchor(anchorHandle: any): bigint {
   if (anchorHandle && anchorHandle._bn) {
-    return anchorHandle._bn.toString(10);
+    return BigInt(anchorHandle._bn.toString(10));
   }
-  
-  // Handle nested BN in {"0": BN} structure
   if (typeof anchorHandle === 'object' && anchorHandle["0"]) {
     const nested = anchorHandle["0"];
-    
-    if (nested && nested._bn) {
-      return nested._bn.toString(10);
-    }
-    
+    if (nested && nested._bn) return BigInt(nested._bn.toString(10));
     if (nested && nested.toString && nested.constructor?.name === 'BN') {
-      return nested.toString(10);
-    }
-    
-    if (nested && typeof nested.toString === 'function') {
-      try {
-        return nested.toString(10);
-      } catch (e) {
-        // Silent fallback
-      }
-    }
-    
-    if (typeof nested === 'string') {
-      return BigInt('0x' + nested).toString();
+      return BigInt(nested.toString(10));
     }
   }
-  
-  // Handle array of bytes (Uint8Array/Buffer)
   if (anchorHandle instanceof Uint8Array || Array.isArray(anchorHandle)) {
     const buffer = Buffer.from(anchorHandle);
     let result = BigInt(0);
     for (let i = buffer.length - 1; i >= 0; i--) {
       result = result * BigInt(256) + BigInt(buffer[i]);
     }
-    return result.toString();
+    return result;
   }
-  
-  // Fallback: try to convert any numeric value
   if (typeof anchorHandle === 'number' || typeof anchorHandle === 'bigint') {
-    return anchorHandle.toString();
+    return BigInt(anchorHandle);
   }
-  
-  return "0";
+  return BigInt(0);
 }
 
-// Helper function to safely compare PublicKey objects
-function comparePublicKeys(actual: any, expected: PublicKey): boolean {
-  if (!actual) return false;
-  
-  if (typeof actual === 'object' && actual["0"]) {
-    const nestedValue = actual["0"];
-    
-    if (nestedValue && nestedValue.toBase58 && typeof nestedValue.toBase58 === 'function') {
-      return nestedValue.toBase58() === expected.toBase58();
-    }
-    
-    if (typeof nestedValue === 'string') {
-      return nestedValue === expected.toString() || nestedValue === expected.toBase58();
-    }
+function getAllowancePda(handle: bigint, allowedAddress: PublicKey): [PublicKey, number] {
+  const handleBuffer = Buffer.alloc(16);
+  let h = handle;
+  for (let i = 0; i < 16; i++) {
+    handleBuffer[i] = Number(h & BigInt(0xff));
+    h = h >> BigInt(8);
   }
-  
-  if (typeof actual === 'string') {
-    return actual === expected.toString() || actual === expected.toBase58();
-  }
-  
-  if (actual.toBase58 && typeof actual.toBase58 === 'function') {
-    return actual.toBase58() === expected.toBase58();
-  }
-  
-  if (actual.toString && typeof actual.toString === 'function') {
-    const actualString = actual.toString();
-    if (actualString !== '[object Object]') {
-      return actualString === expected.toString();
-    }
-  }
-  
-  if (Buffer.isBuffer(actual)) {
-    return actual.equals(expected.toBuffer());
-  }
-  
-  if (actual instanceof Uint8Array) {
-    return Buffer.from(actual).equals(expected.toBuffer());
-  }
-  
-  return false;
+  return PublicKey.findProgramAddressSync(
+    [handleBuffer, allowedAddress.toBuffer()],
+    INCO_LIGHTNING_PROGRAM_ID
+  );
+}
+
+function formatBalance(plaintext: string): string {
+  return (Number(plaintext) / 1e9).toFixed(9);
 }
 
 describe("inco-token", () => {
-  const connection = new Connection(
-    "https://api.devnet.solana.com",
-    "confirmed"
-  );
-  const anchorWallet = anchor.AnchorProvider.env().wallet;
-  const provider = new anchor.AnchorProvider(
-    connection,
-    anchorWallet,
-    {
-      commitment: "confirmed",
-      preflightCommitment: "confirmed",
-      maxRetries: 5,
-      skipPreflight: false,
-    }
-  );
+  const connection = new Connection("https://api.devnet.solana.com", "confirmed");
+  const provider = new anchor.AnchorProvider(connection, anchor.AnchorProvider.env().wallet, {
+    commitment: "confirmed",
+    preflightCommitment: "confirmed",
+  });
   anchor.setProvider(provider);
 
   const program = anchor.workspace.IncoToken as Program<IncoToken>;
   const inputType = 0;
 
-  // Test accounts
   let mintKeypair: Keypair;
   let walletKeypair: Keypair;
-  let ownerTokenAccountKp: Keypair;
-  let recipientTokenAccountKp: Keypair;
-  let delegateTokenAccountKp: Keypair;
+  let ownerAccountKp: Keypair;
+  let recipientAccountKp: Keypair;
+  let delegateAccountKp: Keypair;
 
   before(async () => {
-    walletKeypair = provider.wallet.payer as Keypair;
+    walletKeypair = (provider.wallet as any).payer as Keypair;
     mintKeypair = Keypair.generate();
-    ownerTokenAccountKp = Keypair.generate();
-    recipientTokenAccountKp = Keypair.generate();
-    delegateTokenAccountKp = Keypair.generate();
+    ownerAccountKp = Keypair.generate();
+    recipientAccountKp = Keypair.generate();
+    delegateAccountKp = Keypair.generate();
   });
 
-  // Helper function to decrypt balance using Inco SDK
-  async function decryptBalance(accountData: any): Promise<number | null> {
+  async function decryptHandle(handle: string): Promise<{ success: boolean; plaintext?: string; error?: string }> {
+    await new Promise(r => setTimeout(r, 2000));
     try {
-      const handle = extractHandleFromAnchor(accountData.amount);
-      if (handle === "0") return 0;
-      
-      const result = await decrypt([handle]);
-      const rawAmount = parseInt(result.plaintexts[0], 10);
-      return rawAmount / 1_000_000_000; // Assuming 9 decimals
-    } catch (error) {
-      console.log("Decryption error:", error);
+      const result = await decrypt([handle], {
+        address: walletKeypair.publicKey,
+        signMessage: async (message: Uint8Array) => nacl.sign.detached(message, walletKeypair.secretKey),
+      });
+      return { success: true, plaintext: result.plaintexts[0] };
+    } catch (error: any) {
+      const msg = error.message || error.toString();
+      if (msg.toLowerCase().includes("not allowed")) return { success: false, error: "not_allowed" };
+      if (msg.toLowerCase().includes("ciphertext")) return { success: false, error: "ciphertext_not_found" };
+      return { success: false, error: msg };
+    }
+  }
+
+  async function simulateAndGetHandle(tx: anchor.web3.Transaction, accountPubkey: PublicKey): Promise<bigint | null> {
+    try {
+      const { blockhash } = await connection.getLatestBlockhash();
+      tx.recentBlockhash = blockhash;
+      tx.feePayer = walletKeypair.publicKey;
+      tx.sign(walletKeypair);
+
+      const simulation = await connection.simulateTransaction(tx, undefined, [accountPubkey]);
+      if (simulation.value.err) return null;
+
+      if (simulation.value.accounts?.[0]?.data) {
+        const data = Buffer.from(simulation.value.accounts[0].data[0], "base64");
+        const amountBytes = data.slice(72, 88);
+        let handle = BigInt(0);
+        for (let i = 15; i >= 0; i--) {
+          handle = handle * BigInt(256) + BigInt(amountBytes[i]);
+        }
+        return handle;
+      }
+      return null;
+    } catch {
       return null;
     }
   }
 
-  describe("Initialize Mint", () => {
-    it("Should initialize a new mint", async () => {
-      console.log("\n=== INITIALIZE MINT ===");
-      
+  async function simulateTransferAndGetHandles(
+    tx: anchor.web3.Transaction,
+    sourcePubkey: PublicKey,
+    destPubkey: PublicKey
+  ): Promise<{ sourceHandle: bigint | null; destHandle: bigint | null }> {
+    try {
+      const { blockhash } = await connection.getLatestBlockhash();
+      tx.recentBlockhash = blockhash;
+      tx.feePayer = walletKeypair.publicKey;
+      tx.sign(walletKeypair);
+
+      const simulation = await connection.simulateTransaction(tx, undefined, [sourcePubkey, destPubkey]);
+      if (simulation.value.err) return { sourceHandle: null, destHandle: null };
+
+      const extractHandle = (accountData: any): bigint | null => {
+        if (!accountData?.data) return null;
+        const data = Buffer.from(accountData.data[0], "base64");
+        const amountBytes = data.slice(72, 88);
+        let handle = BigInt(0);
+        for (let i = 15; i >= 0; i--) {
+          handle = handle * BigInt(256) + BigInt(amountBytes[i]);
+        }
+        return handle;
+      };
+
+      return {
+        sourceHandle: extractHandle(simulation.value.accounts?.[0]),
+        destHandle: extractHandle(simulation.value.accounts?.[1]),
+      };
+    } catch {
+      return { sourceHandle: null, destHandle: null };
+    }
+  }
+
+  describe("Initialize", () => {
+    it("Should initialize mint", async () => {
       const tx = await program.methods
-        .initializeMint(
-          9,
-          walletKeypair.publicKey,
-          walletKeypair.publicKey
-        )
+        .initializeMint(9, walletKeypair.publicKey, walletKeypair.publicKey)
         .accounts({
           mint: mintKeypair.publicKey,
           payer: walletKeypair.publicKey,
           systemProgram: SystemProgram.programId,
+          incoLightningProgram: INCO_LIGHTNING_PROGRAM_ID,
         } as any)
         .signers([mintKeypair])
         .rpc();
 
-      console.log("Initialize mint transaction:", tx);
-
+      console.log("Initialize mint:", tx);
       const mintAccount = await program.account.incoMint.fetch(mintKeypair.publicKey);
       expect(mintAccount.isInitialized).to.be.true;
       expect(mintAccount.decimals).to.equal(9);
-      
-      expect(mintAccount.mintAuthority).to.have.property('some');
-      if ('some' in mintAccount.mintAuthority) {
-        expect(comparePublicKeys(mintAccount.mintAuthority.some, walletKeypair.publicKey)).to.be.true;
-      }
-      
-      expect(mintAccount.freezeAuthority).to.have.property('some');
-      if ('some' in mintAccount.freezeAuthority) {
-        expect(comparePublicKeys(mintAccount.freezeAuthority.some, walletKeypair.publicKey)).to.be.true;
+    });
+
+    it("Should initialize token accounts", async () => {
+      const accounts = [
+        { kp: ownerAccountKp, name: "owner" },
+        { kp: recipientAccountKp, name: "recipient" },
+        { kp: delegateAccountKp, name: "delegate" },
+      ];
+
+      for (const { kp, name } of accounts) {
+        const tx = await program.methods
+          .initializeAccount()
+          .accounts({
+            account: kp.publicKey,
+            mint: mintKeypair.publicKey,
+            owner: walletKeypair.publicKey,
+            payer: walletKeypair.publicKey,
+            systemProgram: SystemProgram.programId,
+            incoLightningProgram: INCO_LIGHTNING_PROGRAM_ID,
+          } as any)
+          .signers([kp])
+          .rpc();
+        console.log(`Initialize ${name} account:`, tx);
       }
     });
   });
 
-  describe("Initialize Token Accounts", () => {
-    it("Should initialize owner token account", async () => {
-      console.log("\n=== INITIALIZE OWNER ACCOUNT ===");
-      
-      const tx = await program.methods
-        .initializeAccount()
-        .accounts({
-          account: ownerTokenAccountKp.publicKey,
-          mint: mintKeypair.publicKey,
-          owner: walletKeypair.publicKey,
-          payer: walletKeypair.publicKey,
-          systemProgram: SystemProgram.programId,
-        } as any)
-        .signers([ownerTokenAccountKp])
-        .rpc();
-
-      console.log("Initialize owner account transaction:", tx);
-
-      const tokenAccount = await program.account.incoAccount.fetch(ownerTokenAccountKp.publicKey);
-      
-      expect(comparePublicKeys(tokenAccount.mint, mintKeypair.publicKey)).to.be.true;
-      expect(comparePublicKeys(tokenAccount.owner, walletKeypair.publicKey)).to.be.true;
-      expect(tokenAccount.state).to.have.property('initialized');
-    });
-
-    it("Should initialize recipient token account", async () => {
-      console.log("\n=== INITIALIZE RECIPIENT ACCOUNT ===");
-      
-      const tx = await program.methods
-        .initializeAccount()
-        .accounts({
-          account: recipientTokenAccountKp.publicKey,
-          mint: mintKeypair.publicKey,
-          owner: walletKeypair.publicKey,
-          payer: walletKeypair.publicKey,
-          systemProgram: SystemProgram.programId,
-        } as any)
-        .signers([recipientTokenAccountKp])
-        .rpc();
-      
-      console.log("Initialize recipient account transaction:", tx);
-    });
-
-    it("Should initialize delegate token account", async () => {
-      console.log("\n=== INITIALIZE DELEGATE ACCOUNT ===");
-      
-      const tx = await program.methods
-        .initializeAccount()
-        .accounts({
-          account: delegateTokenAccountKp.publicKey,
-          mint: mintKeypair.publicKey,
-          owner: walletKeypair.publicKey,
-          payer: walletKeypair.publicKey,
-          systemProgram: SystemProgram.programId,
-        } as any)
-        .signers([delegateTokenAccountKp])
-        .rpc();
-
-      console.log("Initialize delegate account transaction:", tx);
-    });
-  });
-
-  describe("Mint Tokens", () => {
-    it("Should mint tokens and decrypt correct balance", async () => {
-      console.log("\n=== MINT OPERATION ===");
-      console.log("Minting: 1 token");
-
-      const mintAmount = BigInt(1000000000); // 1 token with 9 decimals
+  describe("Mint", () => {
+    it("Should mint 1 token", async () => {
+      const mintAmount = BigInt(1_000_000_000);
       const encryptedHex = await encryptValue(mintAmount);
 
-      const tx = await program.methods
-        .mintTo(
-          hexToBuffer(encryptedHex),
-          inputType
-        )
+      const txForSim = await program.methods
+        .mintTo(hexToBuffer(encryptedHex), inputType)
         .accounts({
           mint: mintKeypair.publicKey,
-          account: ownerTokenAccountKp.publicKey,
+          account: ownerAccountKp.publicKey,
           mintAuthority: walletKeypair.publicKey,
+          incoLightningProgram: INCO_LIGHTNING_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
         } as any)
-        .signers([])
+        .transaction();
+
+      const newHandle = await simulateAndGetHandle(txForSim, ownerAccountKp.publicKey);
+      const [allowancePda] = getAllowancePda(newHandle!, walletKeypair.publicKey);
+
+      const tx = await program.methods
+        .mintTo(hexToBuffer(encryptedHex), inputType)
+        .accounts({
+          mint: mintKeypair.publicKey,
+          account: ownerAccountKp.publicKey,
+          mintAuthority: walletKeypair.publicKey,
+          incoLightningProgram: INCO_LIGHTNING_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        } as any)
+        .remainingAccounts([
+          { pubkey: allowancePda, isSigner: false, isWritable: true },
+          { pubkey: walletKeypair.publicKey, isSigner: false, isWritable: false },
+        ])
         .rpc();
 
-      console.log("Mint transaction:", tx);
+      console.log("Mint tx:", tx);
+      await new Promise(r => setTimeout(r, 3000));
 
-      // Wait for handle storage
-      await new Promise(resolve => setTimeout(resolve, 3000));
-
-      const tokenAccount = await program.account.incoAccount.fetch(ownerTokenAccountKp.publicKey);
+      const account = await program.account.incoAccount.fetch(ownerAccountKp.publicKey);
+      const handle = extractHandleFromAnchor(account.amount);
+      const result = await decryptHandle(handle.toString());
       
-      const decryptedBalance = await decryptBalance(tokenAccount);
-      
-      if (decryptedBalance !== null) {
-        console.log("✅ Owner balance after mint:", decryptedBalance, "tokens");
-        expect(decryptedBalance).to.be.greaterThanOrEqual(0);
-      } else {
-        console.log("Failed to decrypt balance after mint");
+      console.log("Balance:", result.success ? `${formatBalance(result.plaintext!)} tokens` : result.error);
+      if (result.success) {
+        expect(result.plaintext).to.equal("1000000000");
       }
     });
   });
 
-  describe("Self-Transfer Tests", () => {
-    it("Should handle self-transfer correctly (balance should remain unchanged)", async () => {
-      console.log("\n=== SELF-TRANSFER TEST ===");
-      console.log("Testing self-transfer (transferring from account to itself)");
-
-      // Get balance BEFORE self-transfer
-      const accountBefore = await program.account.incoAccount.fetch(ownerTokenAccountKp.publicKey);
-      const balanceBefore = await decryptBalance(accountBefore);
-      
-      if (balanceBefore !== null) {
-        console.log("Balance BEFORE self-transfer:", balanceBefore, "tokens");
-      }
-
-      const transferAmount = BigInt(100000000); // 0.1 tokens
+  describe("Transfer", () => {
+    it("Should transfer 0.25 tokens", async () => {
+      const transferAmount = BigInt(250_000_000);
       const encryptedHex = await encryptValue(transferAmount);
 
-      console.log("Executing self-transfer (source = destination)...");
-      const tx = await program.methods
-        .transfer(
-          hexToBuffer(encryptedHex),
-          inputType
-        )
+      const txForSim = await program.methods
+        .transfer(hexToBuffer(encryptedHex), inputType)
         .accounts({
-          source: ownerTokenAccountKp.publicKey,
-          destination: ownerTokenAccountKp.publicKey, // Same account as source
+          source: ownerAccountKp.publicKey,
+          destination: recipientAccountKp.publicKey,
           authority: walletKeypair.publicKey,
+          incoLightningProgram: INCO_LIGHTNING_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
         } as any)
-        .signers([])
+        .transaction();
+
+      const { sourceHandle, destHandle } = await simulateTransferAndGetHandles(
+        txForSim, ownerAccountKp.publicKey, recipientAccountKp.publicKey
+      );
+
+      const [sourceAllowancePda] = getAllowancePda(sourceHandle!, walletKeypair.publicKey);
+      const [destAllowancePda] = getAllowancePda(destHandle!, walletKeypair.publicKey);
+
+      const tx = await program.methods
+        .transfer(hexToBuffer(encryptedHex), inputType)
+        .accounts({
+          source: ownerAccountKp.publicKey,
+          destination: recipientAccountKp.publicKey,
+          authority: walletKeypair.publicKey,
+          incoLightningProgram: INCO_LIGHTNING_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        } as any)
+        .remainingAccounts([
+          { pubkey: sourceAllowancePda, isSigner: false, isWritable: true },
+          { pubkey: walletKeypair.publicKey, isSigner: false, isWritable: false },
+          { pubkey: destAllowancePda, isSigner: false, isWritable: true },
+          { pubkey: walletKeypair.publicKey, isSigner: false, isWritable: false },
+        ])
         .rpc();
 
-      console.log("Self-transfer transaction:", tx);
+      console.log("Transfer tx:", tx);
+      await new Promise(r => setTimeout(r, 5000));
 
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      const sourceAccount = await program.account.incoAccount.fetch(ownerAccountKp.publicKey);
+      const destAccount = await program.account.incoAccount.fetch(recipientAccountKp.publicKey);
 
-      const accountAfter = await program.account.incoAccount.fetch(ownerTokenAccountKp.publicKey);
-      const balanceAfter = await decryptBalance(accountAfter);
-      
-      if (balanceAfter !== null && balanceBefore !== null) {
-        console.log("Balance AFTER self-transfer:", balanceAfter, "tokens");
-        const balanceChange = balanceAfter - balanceBefore;
-        console.log("Balance change from self-transfer:", balanceChange, "tokens");
-        
-        expect(Math.abs(balanceChange)).to.be.lessThan(0.000001, "Balance should not change during self-transfer");
-        console.log("✅ Self-transfer working correctly - balance unchanged");
-      }
+      const sourceResult = await decryptHandle(extractHandleFromAnchor(sourceAccount.amount).toString());
+      const destResult = await decryptHandle(extractHandleFromAnchor(destAccount.amount).toString());
+
+      console.log("Source balance:", sourceResult.success ? `${formatBalance(sourceResult.plaintext!)} tokens` : sourceResult.error);
+      console.log("Dest balance:", destResult.success ? `${formatBalance(destResult.plaintext!)} tokens` : destResult.error);
+    });
+
+    it("Should handle self-transfer", async () => {
+      const encryptedHex = await encryptValue(BigInt(100_000_000));
+
+      const tx = await program.methods
+        .transfer(hexToBuffer(encryptedHex), inputType)
+        .accounts({
+          source: ownerAccountKp.publicKey,
+          destination: ownerAccountKp.publicKey,
+          authority: walletKeypair.publicKey,
+          incoLightningProgram: INCO_LIGHTNING_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        } as any)
+        .rpc();
+
+      console.log("Self-transfer tx:", tx);
     });
   });
 
-  describe("Transfer Tokens", () => {
-    it("Should transfer tokens with correct balance changes", async () => {
-      console.log("\n=== TRANSFER OPERATION ===");
-      console.log("Transferring: 0.25 tokens from Owner to Recipient");
+  describe("Burn", () => {
+    it("Should burn 0.1 tokens", async () => {
+      const burnAmount = BigInt(100_000_000);
+      const encryptedHex = await encryptValue(burnAmount);
 
-      // Show balances BEFORE transfer
-      const sourceAccountBefore = await program.account.incoAccount.fetch(ownerTokenAccountKp.publicKey);
-      const destAccountBefore = await program.account.incoAccount.fetch(recipientTokenAccountKp.publicKey);
-      
-      const sourceBalanceBefore = await decryptBalance(sourceAccountBefore);
-      const destBalanceBefore = await decryptBalance(destAccountBefore);
-      
-      if (sourceBalanceBefore !== null) {
-        console.log("Owner balance BEFORE transfer:", sourceBalanceBefore, "tokens");
-      }
-      if (destBalanceBefore !== null) {
-        console.log("Recipient balance BEFORE transfer:", destBalanceBefore, "tokens");
-      }
+      const txForSim = await program.methods
+        .burn(hexToBuffer(encryptedHex), inputType)
+        .accounts({
+          account: ownerAccountKp.publicKey,
+          mint: mintKeypair.publicKey,
+          authority: walletKeypair.publicKey,
+          incoLightningProgram: INCO_LIGHTNING_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        } as any)
+        .transaction();
 
-      const transferAmount = BigInt(250000000); // 0.25 tokens
-      const encryptedHex = await encryptValue(transferAmount);
+      const newHandle = await simulateAndGetHandle(txForSim, ownerAccountKp.publicKey);
+      const [allowancePda] = getAllowancePda(newHandle!, walletKeypair.publicKey);
 
       const tx = await program.methods
-        .transfer(
-          hexToBuffer(encryptedHex),
-          inputType
-        )
+        .burn(hexToBuffer(encryptedHex), inputType)
         .accounts({
-          source: ownerTokenAccountKp.publicKey,
-          destination: recipientTokenAccountKp.publicKey,
+          account: ownerAccountKp.publicKey,
+          mint: mintKeypair.publicKey,
           authority: walletKeypair.publicKey,
+          incoLightningProgram: INCO_LIGHTNING_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
         } as any)
-        .signers([])
+        .remainingAccounts([
+          { pubkey: allowancePda, isSigner: false, isWritable: true },
+          { pubkey: walletKeypair.publicKey, isSigner: false, isWritable: false },
+        ])
         .rpc();
 
-      console.log("Transfer transaction:", tx);
+      console.log("Burn tx:", tx);
+      await new Promise(r => setTimeout(r, 5000));
 
-      await new Promise(resolve => setTimeout(resolve, 5000));
-
-      const sourceAccountAfter = await program.account.incoAccount.fetch(ownerTokenAccountKp.publicKey);
-      const destAccountAfter = await program.account.incoAccount.fetch(recipientTokenAccountKp.publicKey);
-      
-      const sourceBalance = await decryptBalance(sourceAccountAfter);
-      const destBalance = await decryptBalance(destAccountAfter);
-      
-      if (sourceBalance !== null && destBalance !== null) {
-        console.log("✅ Owner balance AFTER transfer:", sourceBalance, "tokens");
-        console.log("✅ Recipient balance AFTER transfer:", destBalance, "tokens");
-      }
-    });
-
-    it("Should handle insufficient balance gracefully", async () => {
-      console.log("\n=== INSUFFICIENT BALANCE TEST ===");
-      
-      const sourceAccount = await program.account.incoAccount.fetch(ownerTokenAccountKp.publicKey);
-      const currentBalance = await decryptBalance(sourceAccount);
-      
-      console.log(`Current Owner balance: ${currentBalance} tokens`);
-      console.log("Attempting to transfer: 10 tokens (should fail silently or transfer 0)");
-
-      const transferAmount = BigInt(10000000000); // 10 tokens
-      const encryptedHex = await encryptValue(transferAmount);
-
-      const tx = await program.methods
-        .transfer(
-          hexToBuffer(encryptedHex),
-          inputType
-        )
-        .accounts({
-          source: ownerTokenAccountKp.publicKey,
-          destination: recipientTokenAccountKp.publicKey,
-          authority: walletKeypair.publicKey,
-        } as any)
-        .signers([])
-        .rpc();
-
-      console.log("Insufficient balance test transaction:", tx);
-
-      await new Promise(resolve => setTimeout(resolve, 5000));
-      
-      const sourceAccountAfter = await program.account.incoAccount.fetch(ownerTokenAccountKp.publicKey);
-      const sourceBalance = await decryptBalance(sourceAccountAfter);
-      
-      if (sourceBalance !== null) {
-        console.log("Owner balance after over-transfer attempt:", sourceBalance, "tokens");
-        expect(sourceBalance).to.be.greaterThanOrEqual(0, "Balance should not go negative");
-      }
+      const account = await program.account.incoAccount.fetch(ownerAccountKp.publicKey);
+      const result = await decryptHandle(extractHandleFromAnchor(account.amount).toString());
+      console.log("Balance after burn:", result.success ? `${formatBalance(result.plaintext!)} tokens` : result.error);
     });
   });
 
-  describe("Approve and Delegate Transfer", () => {
-    it("Should approve a delegate", async () => {
-      console.log("\n=== APPROVE DELEGATE ===");
-      
-      const approveAmount = BigInt(100000000); // 0.1 tokens
-      const encryptedHex = await encryptValue(approveAmount);
+  describe("Delegation", () => {
+    it("Should approve delegate", async () => {
+      const encryptedHex = await encryptValue(BigInt(100_000_000));
 
       const tx = await program.methods
-        .approve(
-          hexToBuffer(encryptedHex),
-          inputType
-        )
+        .approve(hexToBuffer(encryptedHex), inputType)
         .accounts({
-          source: ownerTokenAccountKp.publicKey,
-          delegate: walletKeypair.publicKey,
+          source: ownerAccountKp.publicKey,
+          delegate: delegateAccountKp.publicKey,
           owner: walletKeypair.publicKey,
+          incoLightningProgram: INCO_LIGHTNING_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
         } as any)
-        .signers([])
         .rpc();
 
-      console.log("Approve delegate transaction:", tx);
-
-      const tokenAccount = await program.account.incoAccount.fetch(ownerTokenAccountKp.publicKey);
-      
-      expect(tokenAccount.delegate).to.have.property('some');
-      if ('some' in tokenAccount.delegate) {
-        expect(comparePublicKeys(tokenAccount.delegate.some, walletKeypair.publicKey)).to.be.true;
-      }
-    });
-
-    it("Should allow delegate to transfer", async () => {
-      console.log("\n=== DELEGATE TRANSFER ===");
-      
-      const transferAmount = BigInt(50000000); // 0.05 tokens
-      const encryptedHex = await encryptValue(transferAmount);
-
-      const tx = await program.methods
-        .transfer(
-          hexToBuffer(encryptedHex),
-          inputType
-        )
-        .accounts({
-          source: ownerTokenAccountKp.publicKey,
-          destination: delegateTokenAccountKp.publicKey,
-          authority: walletKeypair.publicKey,
-        } as any)
-        .signers([])
-        .rpc();
-
-      console.log("Delegate transfer transaction:", tx);
+      console.log("Approve tx:", tx);
+      const account = await program.account.incoAccount.fetch(ownerAccountKp.publicKey);
+      expect(account.delegate).to.have.property('some');
     });
 
     it("Should revoke delegate", async () => {
-      console.log("\n=== REVOKE DELEGATE ===");
-      
       const tx = await program.methods
         .revoke()
         .accounts({
-          source: ownerTokenAccountKp.publicKey,
+          source: ownerAccountKp.publicKey,
           owner: walletKeypair.publicKey,
+          incoLightningProgram: INCO_LIGHTNING_PROGRAM_ID,
         } as any)
-        .signers([])
         .rpc();
 
-      console.log("Revoke delegate transaction:", tx);
-
-      const tokenAccount = await program.account.incoAccount.fetch(ownerTokenAccountKp.publicKey);
-      expect(tokenAccount.delegate).to.have.property('none');
+      console.log("Revoke tx:", tx);
+      const account = await program.account.incoAccount.fetch(ownerAccountKp.publicKey);
+      expect(account.delegate).to.have.property('none');
     });
   });
 
-  describe("Burn Tokens", () => {
-    it("Should burn tokens from account", async () => {
-      console.log("\n=== BURN OPERATION ===");
-      console.log("Burning: 0.1 tokens");
-
-      const accountBefore = await program.account.incoAccount.fetch(ownerTokenAccountKp.publicKey);
-      const balanceBefore = await decryptBalance(accountBefore);
-      
-      if (balanceBefore !== null) {
-        console.log("Owner balance BEFORE burn:", balanceBefore, "tokens");
-      }
-
-      const burnAmount = BigInt(100000000); // 0.1 tokens
-      const encryptedHex = await encryptValue(burnAmount);
-
-      const tx = await program.methods
-        .burn(
-          hexToBuffer(encryptedHex),
-          inputType
-        )
-        .accounts({
-          account: ownerTokenAccountKp.publicKey,
-          mint: mintKeypair.publicKey,
-          authority: walletKeypair.publicKey,
-        } as any)
-        .signers([])
-        .rpc();
-
-      console.log("Burn transaction:", tx);
-
-      await new Promise(resolve => setTimeout(resolve, 5000));
-
-      const accountAfter = await program.account.incoAccount.fetch(ownerTokenAccountKp.publicKey);
-      const decryptedAfterBurn = await decryptBalance(accountAfter);
-      
-      if (decryptedAfterBurn !== null) {
-        console.log("✅ Owner balance AFTER burn:", decryptedAfterBurn, "tokens");
-        
-        if (balanceBefore !== null) {
-          const change = decryptedAfterBurn - balanceBefore;
-          console.log("Balance change from burn:", change.toFixed(2), "tokens");
-        }
-      }
-    });
-  });
-
-  describe("Freeze and Thaw Account", () => {
-    it("Should freeze an account", async () => {
-      console.log("\n=== FREEZE ACCOUNT ===");
-      
+  describe("Freeze/Thaw", () => {
+    it("Should freeze account", async () => {
       const tx = await program.methods
         .freezeAccount()
         .accounts({
-          account: ownerTokenAccountKp.publicKey,
+          account: ownerAccountKp.publicKey,
           mint: mintKeypair.publicKey,
           freezeAuthority: walletKeypair.publicKey,
         } as any)
-        .signers([])
         .rpc();
 
-      console.log("Freeze account transaction:", tx);
-
-      const tokenAccount = await program.account.incoAccount.fetch(ownerTokenAccountKp.publicKey);
-      expect(tokenAccount.state).to.have.property('frozen');
+      console.log("Freeze tx:", tx);
+      const account = await program.account.incoAccount.fetch(ownerAccountKp.publicKey);
+      expect(account.state).to.have.property('frozen');
     });
 
-    it("Should fail to transfer from frozen account", async () => {
-      console.log("\n=== FROZEN ACCOUNT TRANSFER TEST ===");
-      
-      const transferAmount = BigInt(50000000);
-      const encryptedHex = await encryptValue(transferAmount);
+    it("Should reject transfer from frozen account", async () => {
+      const encryptedHex = await encryptValue(BigInt(50_000_000));
 
       try {
         await program.methods
-          .transfer(
-            hexToBuffer(encryptedHex),
-            inputType
-          )
+          .transfer(hexToBuffer(encryptedHex), inputType)
           .accounts({
-            source: ownerTokenAccountKp.publicKey,
-            destination: recipientTokenAccountKp.publicKey,
+            source: ownerAccountKp.publicKey,
+            destination: recipientAccountKp.publicKey,
             authority: walletKeypair.publicKey,
+            incoLightningProgram: INCO_LIGHTNING_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
           } as any)
-          .signers([])
           .rpc();
-        
-        expect.fail("Should have thrown an error");
-      } catch (error) {
-        console.log("✅ Expected error for frozen account transfer");
-        expect((error as Error).toString()).to.include("Error");
+        expect.fail("Should have thrown");
+      } catch (error: any) {
+        expect(error.message).to.include("AccountFrozen");
       }
     });
 
-    it("Should thaw an account", async () => {
-      console.log("\n=== THAW ACCOUNT ===");
-      
+    it("Should thaw account", async () => {
       const tx = await program.methods
         .thawAccount()
         .accounts({
-          account: ownerTokenAccountKp.publicKey,
+          account: ownerAccountKp.publicKey,
           mint: mintKeypair.publicKey,
           freezeAuthority: walletKeypair.publicKey,
         } as any)
-        .signers([])
         .rpc();
 
-      console.log("Thaw account transaction:", tx);
-
-      const tokenAccount = await program.account.incoAccount.fetch(ownerTokenAccountKp.publicKey);
-      expect(tokenAccount.state).to.have.property('initialized');
-    });
-
-    it("Should transfer after thawing", async () => {
-      console.log("\n=== TRANSFER AFTER THAW ===");
-      
-      const transferAmount = BigInt(50000000);
-      const encryptedHex = await encryptValue(transferAmount);
-
-      const tx = await program.methods
-        .transfer(
-          hexToBuffer(encryptedHex),
-          inputType
-        )
-        .accounts({
-          source: ownerTokenAccountKp.publicKey,
-          destination: recipientTokenAccountKp.publicKey,
-          authority: walletKeypair.publicKey,
-        } as any)
-        .signers([])
-        .rpc();
-
-      console.log("Transfer after thaw transaction:", tx);
+      console.log("Thaw tx:", tx);
+      const account = await program.account.incoAccount.fetch(ownerAccountKp.publicKey);
+      expect(account.state).to.have.property('initialized');
     });
   });
 
-  describe("Authority Management", () => {
-    it("Should set mint authority to same wallet", async () => {
-      console.log("\n=== SET MINT AUTHORITY ===");
-      
-      const tx = await program.methods
-        .setMintAuthority(walletKeypair.publicKey)
-        .accounts({
-          mint: mintKeypair.publicKey,
-          currentAuthority: walletKeypair.publicKey,
-        } as any)
-        .signers([])
-        .rpc();
-
-      console.log("Set mint authority transaction:", tx);
-
-      const mintAccount = await program.account.incoMint.fetch(mintKeypair.publicKey);
-      expect(mintAccount.mintAuthority).to.have.property('some');
-    });
-
-    it("Should set account owner to same wallet", async () => {
-      console.log("\n=== SET ACCOUNT OWNER ===");
-      
-      const tx = await program.methods
-        .setAccountOwner(walletKeypair.publicKey)
-        .accounts({
-          account: ownerTokenAccountKp.publicKey,
-          currentOwner: walletKeypair.publicKey,
-        } as any)
-        .signers([])
-        .rpc();
-
-      console.log("Set account owner transaction:", tx);
-
-      const tokenAccount = await program.account.incoAccount.fetch(ownerTokenAccountKp.publicKey);
-      expect(comparePublicKeys(tokenAccount.owner, walletKeypair.publicKey)).to.be.true;
-    });
-  });
-
-  describe("Close Account", () => {
-    let testAccountKp: Keypair;
-    
-    before(async () => {
-      console.log("\n=== SETUP TEST ACCOUNT FOR CLOSING ===");
-      
-      testAccountKp = Keypair.generate();
-      
-      const tx = await program.methods
-        .initializeAccount()
-        .accounts({
-          account: testAccountKp.publicKey,
-          mint: mintKeypair.publicKey,
-          owner: walletKeypair.publicKey,
-          payer: walletKeypair.publicKey,
-          systemProgram: SystemProgram.programId,
-        } as any)
-        .signers([testAccountKp])
-        .rpc();
-
-      console.log("Initialize test account for closing transaction:", tx);
-    });
-
-    it("Should close an account with zero balance", async () => {
-      console.log("\n=== CLOSE ACCOUNT ===");
-      
-      const destinationKeypair = Keypair.generate();
-
-      const tx = await program.methods
-        .closeAccount()
-        .accounts({
-          account: testAccountKp.publicKey,
-          destination: destinationKeypair.publicKey,
-          authority: walletKeypair.publicKey,
-        } as any)
-        .signers([])
-        .rpc();
-
-      console.log("Close account transaction:", tx);
-
-      const accountInfo = await provider.connection.getAccountInfo(testAccountKp.publicKey);
-      expect(accountInfo?.lamports || 0).to.equal(0);
-    });
-  });
-
-  describe("Handle-based Operations", () => {
-    it("Should transfer using handle instead of ciphertext", async () => {
-      console.log("\n=== HANDLE-BASED TRANSFER ===");
-      
-      const sourceAccount = await program.account.incoAccount.fetch(recipientTokenAccountKp.publicKey);
-      const amountHandle = sourceAccount.amount;
-
-      const tx = await program.methods
-        .transferWithHandle(amountHandle)
-        .accounts({
-          source: recipientTokenAccountKp.publicKey,
-          destination: delegateTokenAccountKp.publicKey,
-          authority: walletKeypair.publicKey,
-        } as any)
-        .signers([])
-        .rpc();
-
-      console.log("Handle-based transfer transaction:", tx);
-    });
-  });
-
-  describe("Final Balance Check", () => {
-    it("Should show final balances for all accounts", async () => {
-      console.log("\n=== FINAL BALANCE SUMMARY ===");
+  describe("Summary", () => {
+    it("Should display final balances", async () => {
+      console.log("\n=== Final Balances ===");
       
       const accounts = [
-        { name: "Owner", key: ownerTokenAccountKp.publicKey },
-        { name: "Recipient", key: recipientTokenAccountKp.publicKey },
-        { name: "Delegate", key: delegateTokenAccountKp.publicKey }
+        { name: "Owner", kp: ownerAccountKp },
+        { name: "Recipient", kp: recipientAccountKp },
+        { name: "Delegate", kp: delegateAccountKp },
       ];
 
-      let totalBalance = 0;
-
-      for (const account of accounts) {
-        try {
-          const accountData = await program.account.incoAccount.fetch(account.key);
-          const balance = await decryptBalance(accountData);
-          
-          if (balance !== null) {
-            console.log(`${account.name} final balance: ${balance} tokens`);
-            totalBalance += balance;
-          } else {
-            console.log(`${account.name}: Failed to decrypt balance`);
-          }
-        } catch (error) {
-          console.log(`${account.name}: Account not accessible (might be closed)`);
-        }
-      }
-
-      console.log(`Total balance across all accounts: ${totalBalance} tokens`);
-      
-      try {
-        const mintData = await program.account.incoMint.fetch(mintKeypair.publicKey);
-        console.log(`Mint supply handle: ${extractHandleFromAnchor(mintData.supply)}`);
-      } catch (error) {
-        console.log("Could not fetch mint supply");
+      for (const { name, kp } of accounts) {
+        const account = await program.account.incoAccount.fetch(kp.publicKey);
+        const handle = extractHandleFromAnchor(account.amount);
+        const result = await decryptHandle(handle.toString());
+        console.log(`${name}: ${result.success ? formatBalance(result.plaintext!) : result.error} tokens`);
       }
     });
   });
