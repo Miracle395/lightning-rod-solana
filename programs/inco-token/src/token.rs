@@ -539,13 +539,13 @@ pub struct IncoMintTo<'info> {
 pub struct IncoTransfer<'info> {
     #[account(
         mut,
-        constraint = source.state == AccountState::Initialized @ CustomError::UninitializedState,
+        constraint = source.state != AccountState::Uninitialized @ CustomError::UninitializedState,
         constraint = source.state != AccountState::Frozen @ CustomError::AccountFrozen,
     )]
     pub source: Account<'info, IncoAccount>,
     #[account(
         mut,
-        constraint = destination.state == AccountState::Initialized @ CustomError::UninitializedState,
+        constraint = destination.state != AccountState::Uninitialized @ CustomError::UninitializedState,
         constraint = destination.state != AccountState::Frozen @ CustomError::AccountFrozen,
         constraint = destination.mint == source.mint @ CustomError::MintMismatch,
     )]

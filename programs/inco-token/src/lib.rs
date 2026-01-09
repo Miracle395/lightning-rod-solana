@@ -16,7 +16,7 @@ pub use associated_token::*;
 pub use metadata::*;
 pub use token_2022::*;
 
-declare_id!("7PkBc98v6bKkX8oc8Wmce6HNR5BiEt1YcRFB4DLsrPW8");
+declare_id!("4cyJHzecVWuU2xux6bCAPAhALKQT8woBh4Vx3AGEGe5N");
 
 // ========== SHARED TYPES ==========
 

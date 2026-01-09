@@ -426,7 +426,7 @@ describe("inco-token", () => {
           .rpc();
         expect.fail("Should have thrown");
       } catch (error: any) {
-        expect(error.message).to.include("AccountFrozen");
+        expect(error.toString().toLowerCase()).to.include("frozen");
       }
     });
 

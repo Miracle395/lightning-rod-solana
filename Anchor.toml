@@ -5,7 +5,7 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-inco_token = "7PkBc98v6bKkX8oc8Wmce6HNR5BiEt1YcRFB4DLsrPW8"
+inco_token = "4cyJHzecVWuU2xux6bCAPAhALKQT8woBh4Vx3AGEGe5N"
 
 [registry]
 url = "https://api.apr.dev"
